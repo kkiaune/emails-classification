@@ -1,0 +1,121 @@
+version: "3"
+
+# All available services
+services:
+
+  # Computation
+  jupyter:
+    container_name: "jupyter-container"
+    restart: "always"
+    build: services/jupyter
+    env_file:
+      - ./config/jupyter.env
+      - ./config/minio.env
+      - ./config/shared_database.env
+    volumes:
+      - ./shared/notebooks/:/home/jovyan/work/notebooks
+    ports:
+      - 8888:8888
+    entrypoint: sh -c 'start-notebook.sh --NotebookApp.token=$$JUPYTER_PASSWORD'
+
+  # Database
+  postgres:
+    container_name: "postgres-container"
+    restart: "always"
+    image: postgres
+    env_file:
+      - ./config/postgres.env
+      - ./config/superset_database.env
+      - ./config/airflow_database.env
+      - ./config/shared_database.env
+    volumes:
+      - postgres_volume:/var/lib/postgresql/data/
+      - ./services/postgres/:/docker-entrypoint-initdb.d/
+    ports:
+      - 5432:5432
+
+  # Database explorer
+  pgadmin:
+    container_name: "pgadmin-container"
+    image: dpage/pgadmin4
+    env_file:
+      - ./config/pgadmin.env
+    volumes:
+       - pgadmin_volume:/root/.pgadmin
+    ports:
+      - 5050:80
+    restart: "always"
+
+  # Model Storage
+  minio:
+    container_name: "minio-container"
+    restart: "always"
+    image: minio/minio
+    env_file:
+        - ./config/minio.env
+    volumes:
+        - minio_volume:/data
+    ports:
+        - 9000:9000
+    command: server /data
+
+  # API
+  fastapi:
+    container_name: "fastapi-container"
+    restart: "always"
+    build: services/fastapi
+    env_file:
+      - ./config/minio.env
+    volumes:
+      - ./services/fastapi/app:/app
+    ports:
+      - 80:80
+
+  # Admin Overview
+  portainer:
+    container_name: "portainer-container"
+    restart: "always"
+    image: portainer/portainer
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_volume:/data
+    ports:
+      - 9090:9000
+    command: -H unix:///var/run/docker.sock
+
+  # Visualization
+  superset:
+    container_name: "superset-container"
+    restart: "always"
+    image: tylerfowler/superset:0.24
+    depends_on:
+        - postgres
+    env_file:
+        - ./config/superset_container.env
+        - ./config/superset_database.env
+    ports:
+      - 8088:8088
+
+  # Scheduling
+  airflow:
+    container_name: "airflow-container"
+    restart: "always"
+    build: services/airflow
+    depends_on:
+      - postgres
+    env_file:
+      - ./config/airflow_container.env
+      - ./config/minio.env
+      - ./config/shared_database.env
+    volumes:
+      - ./shared/dags/:/usr/local/airflow/dags
+    ports:
+      - 8080:8080
+    command: webserver
+
+# Volumes to persist data
+volumes:
+  postgres_volume:
+  pgadmin_volume:
+  minio_volume:
+  portainer_volume:
